@@ -34,7 +34,6 @@ namespace Brrainz
 			if (Harmony.HasAnyPatches(_crosspromotion))
 				return;
 
-			Harmony.DEBUG = true;
 			var instance = new Harmony(_crosspromotion);
 
 			_ = instance.Patch(
