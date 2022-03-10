@@ -1,4 +1,5 @@
-﻿using System.Reflection;
+﻿using System;
+using System.Reflection;
 
 namespace Brrainz
 {
@@ -6,7 +7,10 @@ namespace Brrainz
 	{
 		public static void Install(ulong userId)
 		{
-			var fileName = "Brrainz.CrossPromotionSteam.dll";
+			var t_VersionControl = Type.GetType("RimWorld.VersionControl");
+			var version = (Version)t_VersionControl.GetProperty("CurrentVersion").GetValue(null);
+			var isSteamDeck = version >= new Version(1, 3, 3299);
+			var fileName = $"Brrainz.CrossPromotion{(isSteamDeck ? "SteamDeck" : "Steam")}.dll";
 			var assembly = Assembly.GetExecutingAssembly();
 			using var resFilestream = assembly.GetManifestResourceStream(fileName);
 			var len = (int)resFilestream.Length;
