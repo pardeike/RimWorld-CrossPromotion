@@ -89,8 +89,6 @@ namespace Brrainz
 			});
 		}
 
-		static readonly MethodInfo m_BeginGroup = SymbolExtensions.GetMethodInfo(() => GUI.BeginGroup(new Rect()));
-		static readonly MethodInfo m_EndGroup = SymbolExtensions.GetMethodInfo(() => GUI.EndGroup());
 		static readonly MethodInfo m_Promotion = SymbolExtensions.GetMethodInfo(() => PromotionLayout.Promotion(new Rect(), null));
 
 		static IEnumerable<CodeInstruction> Page_ModsConfig_DoWindowContents_Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator)
@@ -99,12 +97,12 @@ namespace Brrainz
 
 			var beginGroupIndicies = list
 				.Select((instr, idx) => new Pair<int, CodeInstruction>(idx, instr))
-				.Where(pair => pair.Second.operand is MethodInfo mi && mi == m_BeginGroup)
+				.Where(pair => pair.Second.operand is MethodInfo mi && mi.Name == "BeginGroup")
 				.Select(pair => pair.First).ToArray();
 
 			var endGroupIndicies = list
 				.Select((instr, idx) => new Pair<int, CodeInstruction>(idx, instr))
-				.Where(pair => pair.Second.operand is MethodInfo mi && mi == m_EndGroup)
+				.Where(pair => pair.Second.operand is MethodInfo mi && mi.Name == "EndGroup")
 				.Select(pair => pair.First).ToArray();
 
 			if (beginGroupIndicies.Length != 2 || endGroupIndicies.Length != 2)
@@ -546,16 +544,4 @@ namespace Brrainz
 			return (bool)mButtonText.Invoke(row, parameters);
 		}
 	}
-
-	// internal static class Tools
-	// {
-	// 	internal static void Log(string str)
-	// 	{
-	// 		var desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-	// 		var logPath = Path.Combine(desktopPath, "crosspromotion.txt");
-	// 
-	// 		using var writer = File.AppendText(logPath);
-	// 		writer.WriteLine(str);
-	// 	}
-	// }
 }
