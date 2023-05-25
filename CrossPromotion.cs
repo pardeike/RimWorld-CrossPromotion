@@ -5,17 +5,14 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
-using System.Reflection.Emit;
 using System.Threading;
 using UnityEngine;
 using Verse;
+using Verse.Sound;
 using Verse.Steam;
 
 namespace Brrainz
 {
-	// works with RimWorld 1.2 and 1.3
-
 	public static class CrossPromotion
 	{
 		const string _crosspromotion = "brrainz-crosspromotion";
@@ -52,8 +49,8 @@ namespace Brrainz
 			);
 
 			_ = instance.Patch(
-				AccessTools.DeclaredMethod(typeof(Page_ModsConfig), nameof(Page_ModsConfig.DoWindowContents)),
-				transpiler: new HarmonyMethod(SymbolExtensions.GetMethodInfo(() => Page_ModsConfig_DoWindowContents_Transpiler(null, null)))
+				SymbolExtensions.GetMethodInfo(() => new Page_ModsConfig().DoModInfo(default, default)),
+				prefix: new HarmonyMethod(SymbolExtensions.GetMethodInfo(() => Page_ModsConfig_DoModInfo_Prefix(default, default, default)))
 			);
 		}
 
@@ -89,46 +86,21 @@ namespace Brrainz
 			});
 		}
 
-		static readonly MethodInfo m_Promotion = SymbolExtensions.GetMethodInfo(() => PromotionLayout.Promotion(new Rect(), null));
-
-		static IEnumerable<CodeInstruction> Page_ModsConfig_DoWindowContents_Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator)
+		static bool Page_ModsConfig_DoModInfo_Prefix(Page_ModsConfig __instance, Rect r, ModMetaData mod)
 		{
-			var list = instructions.ToList();
+			if (mod == null
+				|| mod.GetWorkshopItemHook().steamAuthor.m_SteamID != userID
+				|| promotionMods.Count == 0)
+				return true;
 
-			var beginGroupIndicies = list
-				.Select((instr, idx) => new Pair<int, CodeInstruction>(idx, instr))
-				.Where(pair => pair.Second.operand is MethodInfo mi && mi.Name == "BeginGroup")
-				.Select(pair => pair.First).ToArray();
-
-			var endGroupIndicies = list
-				.Select((instr, idx) => new Pair<int, CodeInstruction>(idx, instr))
-				.Where(pair => pair.Second.operand is MethodInfo mi && mi.Name == "EndGroup")
-				.Select(pair => pair.First).ToArray();
-
-			if (beginGroupIndicies.Length != 2 || endGroupIndicies.Length != 2)
-				return instructions;
-
-			var iBegin = beginGroupIndicies[1] - 1;
-			var iEnd = endGroupIndicies[0];
-
-			var jump = generator.DefineLabel();
-			list[iEnd + 1].labels.Add(jump);
-			var localPositionVar = list[iBegin];
-			list.InsertRange(iBegin, new[]
-			{
-					localPositionVar.Clone(),
-					new CodeInstruction(OpCodes.Ldarg_0),
-					new CodeInstruction(OpCodes.Call, m_Promotion),
-					new CodeInstruction(OpCodes.Brtrue, jump)
-				});
-
-			return list.AsEnumerable();
+			return PromotionLayout.Promotion(r, __instance) == false;
 		}
 
 		internal static string ModPreviewPath(ulong modID)
 		{
 			var dir = Path.GetTempPath() + "BrrainzMods" + Path.DirectorySeparatorChar;
-			if (Directory.Exists(dir) == false) _ = Directory.CreateDirectory(dir);
+			if (Directory.Exists(dir) == false)
+				_ = Directory.CreateDirectory(dir);
 			return dir + modID + "-preview.jpg";
 		}
 
@@ -246,7 +218,7 @@ namespace Brrainz
 			if (SteamManager.Initialized == false)
 				return false;
 
-			var mod = page.selectedMod;
+			var mod = page.primarySelectedMod;
 			if (mod == null
 				|| mod.GetWorkshopItemHook().steamAuthor.m_SteamID != CrossPromotion.userID
 				|| CrossPromotion.promotionMods.Count == 0)
@@ -262,7 +234,7 @@ namespace Brrainz
 				ContentPart(mainRect, leftColumn, mod, page);
 				PromotionPart(mainRect, leftColumn, rightColumn, mod, page);
 			}
-			catch
+			catch (Exception)
 			{
 				GUI.EndGroup();
 				return false;
@@ -275,15 +247,146 @@ namespace Brrainz
 		static Vector2 leftScroll = Vector2.zero;
 		static Vector2 rightScroll = Vector2.zero;
 
+		static List<FloatMenuOption> GetAdvancedMenu(Page_ModsConfig page, ModMetaData mod)
+		{
+			var list = new List<FloatMenuOption>();
+			if (SteamManager.Initialized && mod.OnSteamWorkshop)
+			{
+				list.Add(new FloatMenuOption("Unsubscribe".Translate(), delegate ()
+				{
+					var windowStack = Find.WindowStack;
+					var text3 = "ConfirmUnsubscribeFrom".Translate(mod.Name);
+					void confirmedAct()
+					{
+						mod.enabled = false;
+						Workshop.Unsubscribe(mod);
+					};
+					windowStack.Add(Dialog_MessageBox.CreateConfirmation(text3, confirmedAct, true, null, WindowLayer.Dialog));
+				}, MenuOptionPriority.Default, null, null, 0f, null, null, true, 0));
+				list.Add(new FloatMenuOption("WorkshopPage".Translate(), delegate ()
+				{
+					SteamUtility.OpenWorkshopPage(mod.GetPublishedFileId());
+				}, MenuOptionPriority.Default, null, null, 0f, null, null, true, 0));
+				if (!mod.Official && (Application.platform == RuntimePlatform.WindowsPlayer || Application.platform == RuntimePlatform.WindowsEditor))
+				{
+					list.Add(new FloatMenuOption("ModFolder".Translate(), delegate ()
+					{
+						Application.OpenURL(mod.RootDir.FullName);
+					}, MenuOptionPriority.Default, null, null, 0f, null, null, true, 0));
+				}
+			}
+			else
+			{
+				if (!mod.Url.NullOrEmpty())
+				{
+					list.Add(new FloatMenuOption("ModWebsite".Translate(), delegate ()
+					{
+						Application.OpenURL(mod.Url);
+					}, MenuOptionPriority.Default, null, null, 0f, null, null, true, 0));
+				}
+				if (!mod.Official && (Application.platform == RuntimePlatform.WindowsPlayer || Application.platform == RuntimePlatform.WindowsEditor))
+				{
+					list.Add(new FloatMenuOption("ModFolder".Translate(), delegate ()
+					{
+						Application.OpenURL(GenFilePaths.ModsFolderPath + "/" + mod.FolderName);
+					}, MenuOptionPriority.Default, null, null, 0f, null, null, true, 0));
+				}
+			}
+			if (page.primaryModHandle != null && !page.primaryModHandle.SettingsCategory().NullOrEmpty())
+			{
+				list.Add(new FloatMenuOption("ModOptions".Translate(), delegate ()
+				{
+					Find.WindowStack.Add(new Dialog_ModSettings(page.primaryModHandle));
+				}, MenuOptionPriority.Default, null, null, 0f, null, null, true, 0));
+			}
+			if (Prefs.DevMode && SteamManager.Initialized && mod.CanToUploadToWorkshop())
+			{
+				list.Add(new FloatMenuOption(Workshop.UploadButtonLabel(mod.GetPublishedFileId()), delegate ()
+				{
+					var loadFolders = mod.loadFolders;
+					var list2 = loadFolders?.GetIssueList(mod);
+					if (mod.HadIncorrectlyFormattedVersionInMetadata)
+					{
+						Messages.Message("MessageModNeedsWellFormattedTargetVersion".Translate(VersionControl.CurrentMajor + "." + VersionControl.CurrentMinor), MessageTypeDefOf.RejectInput, false);
+						return;
+					}
+					if (mod.HadIncorrectlyFormattedPackageId)
+					{
+						Find.WindowStack.Add(new Dialog_MessageBox("MessageModNeedsWellFormattedPackageId".Translate(), null, null, null, null, null, false, null, null, WindowLayer.Dialog));
+						return;
+					}
+					if (!list2.NullOrEmpty<string>())
+					{
+						Find.WindowStack.Add(new Dialog_MessageBox("ModHadLoadFolderIssues".Translate() + "\n" + list2.ToLineList("  - "), null, null, null, null, null, false, null, null, WindowLayer.Dialog));
+						return;
+					}
+					var windowStack = Find.WindowStack;
+					var mod2 = mod;
+					void acceptAction()
+					{
+						SoundDefOf.Tick_High.PlayOneShotOnCamera(null);
+						var text3 = "ConfirmContentAuthor".Translate();
+						void confirmedAct()
+						{
+							SoundDefOf.Tick_High.PlayOneShotOnCamera(null);
+							Workshop.Upload(mod);
+						}
+						var dialog_MessageBox = Dialog_MessageBox.CreateConfirmation(text3, confirmedAct, true, null, WindowLayer.Dialog);
+						dialog_MessageBox.buttonAText = "Yes".Translate();
+						dialog_MessageBox.buttonBText = "No".Translate();
+						dialog_MessageBox.interactionDelay = 6f;
+						Find.WindowStack.Add(dialog_MessageBox);
+					}
+					windowStack.Add(new Dialog_ConfirmModUpload(mod2, acceptAction));
+				}, MenuOptionPriority.Default, null, null, 0f, null, null, true, 0));
+			}
+			return list;
+		}
+
+		static string ConvertHTML(ModMetaData mod, string otherDescription = null)
+		{
+			var description = otherDescription;
+			if (description == null)
+			{
+				var mainModID = mod.GetPublishedFileId().m_PublishedFileId;
+				var promoMods = CrossPromotion.promotionMods.ToArray();
+				var thisMod = promoMods.FirstOrDefault(m => m.m_nPublishedFileId.m_PublishedFileId == mainModID);
+
+				description = thisMod.m_rgchDescription;
+				if (description == null || description.Length == 0)
+					description = mod.Description;
+			}
+
+			var divider = description.IndexOf("[hr][/hr]");
+			if (divider == -1)
+				return description;
+
+			description = description.Substring(0, divider);
+
+			description += @"[b]MY OTHER MODS[/b]
+I make RimWorld mods since 2015. Check out all my mods here to right. You can sub directly from the icons by toggling the red cross or click on them for more info!
+
+[b]SUPPORT ME![/b]
+Please support my work with as little as $1 on <color=blue>https://patreon.com/pardeike</color>
+
+[b]CONTACT[/b]
+Andreas Pardeike (aka Brrainz)
+Email: andreas@pardeike.net
+Discord: <color=blue>https://discord.gg/DsFxX5PG67</color>
+Twitter: <color=blue>https://twitter.com/pardeike</color>
+Twitch: <color=blue>https://twitch.tv/brrainz</color>";
+			
+			description = description.Replace("[b]", "<b><color=yellow>");
+			description = description.Replace("[/b]", "</color></b>");
+			description = description.Replace("[i]", "<i><color=silver>");
+			description = description.Replace("[/i]", "</color></i>");
+			return description;
+		}
+
 		static void ContentPart(Rect mainRect, float leftColumn, ModMetaData mod, Page_ModsConfig page)
 		{
-			var workshopMods = WorkshopItems.AllSubscribedItems.Select(wi => wi.PublishedFileId.m_PublishedFileId).ToList();
-
 			var mainModID = mod.GetPublishedFileId().m_PublishedFileId;
 			var promoMods = CrossPromotion.promotionMods.ToArray();
-			var thisMod = promoMods.FirstOrDefault(m => m.m_nPublishedFileId.m_PublishedFileId == mainModID);
-			var isLocalFile = ModLister.AllInstalledMods.Any(meta => meta.GetPublishedFileId().m_PublishedFileId == mainModID && meta.Source == ContentSource.ModsFolder);
-			var isSubbed = workshopMods.Contains(mainModID);
 
 			if (CrossPromotion.lastPresentedMod != mainModID)
 			{
@@ -302,47 +405,48 @@ namespace Brrainz
 				.Start();
 			}
 
-			var description = thisMod.m_rgchDescription;
-			if (description == null || description.Length == 0)
-				description = mod.Description;
-
-			var outRect = new Rect(0f, 0f, leftColumn, mainRect.height);
+			var outRect = new Rect(0f, 6f, leftColumn, mainRect.height - 30f - 10f - 6f);
 			var width = outRect.width - 20f;
 			var imageRect = new Rect(0f, 0f, width, width * mod.PreviewImage.height / mod.PreviewImage.width);
-			var textRect = new Rect(0f, 24f + 10f + imageRect.height, width, Text.CalcHeight(description, width));
+
+			var style = new GUIStyle { richText = true, wordWrap = true };
+			var content = new GUIContent($"<color=white>{ConvertHTML(mod)}</color>");
+			var height = style.CalcHeight(content, width);
+			var textRect = new Rect(0f, 24f + 10f + imageRect.height + 2f, width, height - 2f);
 			var innerRect = new Rect(0f, 0f, width, imageRect.height + 20f + 8f + 10f + textRect.height);
 
 			Widgets.BeginScrollView(outRect, ref leftScroll, innerRect, true);
 			GUI.DrawTexture(imageRect, mod.PreviewImage, ScaleMode.ScaleToFit);
 			var widgetRow = new WidgetRow(imageRect.xMax, imageRect.yMax + 8f, UIDirection.LeftThenDown, width, 8f);
-			if (isLocalFile == false)
+			if (widgetRow.ButtonText("MoreActions".Translate(), null, true))
 			{
-				if (widgetRow.CrossVersionButtonText("Unsubscribe".Translate(), null, true, true))
+				SoundDefOf.Click.PlayOneShotOnCamera(null);
+				Find.WindowStack.Add(new FloatMenu(GetAdvancedMenu(page, mod)));
+			}
+			if (widgetRow.ButtonText(mod.Active ? "Disable".Translate() : "Enable".Translate(), null, true, true, true, null))
+			{
+				SoundDefOf.Click.PlayOneShotOnCamera(null);
+				if (mod.Active)
 				{
-					Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation("ConfirmUnsubscribe".Translate(mod.Name), () =>
-					{
-						mod.enabled = false;
-						new Thread(() =>
-						{
-							Workshop.Unsubscribe(mod);
-							page.Notify_SteamItemUnsubscribed(new PublishedFileId_t(mainModID));
-						})
-						.Start();
-					}, true, null));
+					page.TrySetModInactive(mod);
 				}
+				else
+				{
+					page.TrySetModActive(mod);
+				}
+				page.selectedMods.Clear();
+				page.selectedMods.Add(page.primarySelectedMod);
 			}
-			if (isSubbed)
+			if (mod.ModVersion.NullOrEmpty() == false)
 			{
-				if (widgetRow.CrossVersionButtonText("WorkshopPage".Translate(), null, true, true))
-					SteamUtility.OpenWorkshopPage(new PublishedFileId_t(mainModID));
+				var anchor = Text.Anchor;
+				Text.Anchor = TextAnchor.MiddleLeft;
+				widgetRow.Label($"v{mod.ModVersion}", -1, null, 24f);
+				Text.Anchor = anchor;
 			}
-			if (Prefs.DevMode && mod.CanToUploadToWorkshop())
-			{
-				widgetRow = new WidgetRow(imageRect.xMin, imageRect.yMax + 8f, UIDirection.RightThenDown, width, 8f);
-				if (widgetRow.CrossVersionButtonText("Upload", null, true, true))
-					Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation("ConfirmSteamWorkshopUpload".Translate(), () => Workshop.Upload(mod), true, null));
-			}
-			Widgets.Label(textRect, description);
+			GUILayout.BeginArea(textRect);
+			GUILayout.Label(content, style);
+			GUILayout.EndArea();
 			Widgets.EndScrollView();
 		}
 
@@ -354,10 +458,10 @@ namespace Brrainz
 			var headerHeight = 30f;
 			var headerRect = new Rect(leftColumn + 10f, -4f, rightColumn - 20f, headerHeight);
 			Text.Anchor = TextAnchor.UpperCenter;
-			Widgets.Label(headerRect, "Mods of " + mod.CrossVersionAuthor().Replace("Andreas Pardeike", "Brrainz") + ":".Truncate(headerRect.width, null));
+			Widgets.Label(headerRect, "Mods of " + mod.AuthorsString.Replace("Andreas Pardeike", "Brrainz") + ":".Truncate(headerRect.width, null));
 			Text.Anchor = TextAnchor.UpperLeft;
 
-			var outRect = new Rect(leftColumn + 10f, headerHeight - 4f, rightColumn, mainRect.height - (headerHeight - 4f));
+			var outRect = new Rect(leftColumn + 10f, headerHeight - 4f, rightColumn, mainRect.height - (headerHeight - 4f) - 30f - 10f);
 			var width = outRect.width - 20f;
 			var previewHeight = width * 319f / 588f;
 			var promoMods = CrossPromotion.promotionMods.ToArray().Where(m => m.m_nPublishedFileId != mainModID);
@@ -427,27 +531,26 @@ namespace Brrainz
 						Widgets.DrawHighlightIfMouseover(modRect);
 						if (Widgets.ButtonInvisible(modRect, true))
 						{
-							var description = promoMod.m_rgchTitle + "\n\n" + promoMod.m_rgchDescription;
-							var actionButton = isSubbed || isLocalFile ? "Select" : "Subscribe";
+							var useSelect = isSubbed || isLocalFile;
+							var actionButton = useSelect ? "Select" : "Subscribe";
 							void actionButtonAction()
 							{
-								if (isSubbed || isLocalFile)
+								if (useSelect)
 								{
-									var orderedMods = page.ModsInListOrder();
-									page.selectedMod = orderedMods.FirstOrDefault(meta => meta.GetPublishedFileId().m_PublishedFileId == myModID);
-									var modsBefore = orderedMods.ToList().FindIndex(m => m == page.selectedMod);
-									if (modsBefore >= 0)
-										_ = Traverse.Create(page).Field("modListScrollPosition").SetValue(new Vector2(0f, modsBefore * 26f + 4f));
+									var clickedMod = ModLister.AllInstalledMods.FirstOrDefault(meta => meta.GetPublishedFileId().m_PublishedFileId == myModID);
+									page.SelectMod(clickedMod);
 								}
 								else
+								{
 									new Thread(() =>
 									{
 										CrossPromotion.subscribingMods.Add(myModID);
 										_ = SteamUGC.SubscribeItem(new PublishedFileId_t(myModID));
 									})
 									.Start();
+								}
 							}
-							var infoWindow = new Dialog_MessageBox(description, "Close".Translate(), null, actionButton, actionButtonAction, null, false, null, null);
+							var infoWindow = new Dialog_MessageBox(ConvertHTML(mod, promoMod.m_rgchDescription), "Close".Translate(), null, actionButton, actionButtonAction, null, false, null, null);
 							Find.WindowStack.Add(infoWindow);
 						}
 					}
@@ -516,32 +619,5 @@ namespace Brrainz
 			: base(text, buttonAText, buttonAAction, buttonBText, buttonBAction, title, buttonADestructive, acceptAction, cancelAction) { }
 
 		public override Vector2 InitialSize => new Vector2(320, 240);
-	}
-
-	internal static class CrossVersionMethods
-	{
-		internal static string CrossVersionAuthor(this ModMetaData mod)
-		{
-			var str1 = Traverse.Create(mod).Property("AuthorsString").GetValue<string>();
-			var str2 = Traverse.Create(mod).Property("Author").GetValue<string>();
-			return (str1 ?? str2).Replace("Andreas Pardeike", "Brrainz");
-		}
-
-		private static MethodInfo mButtonText = null;
-		private static object[] buttonTextDefaults = new object[0];
-		internal static bool CrossVersionButtonText(this WidgetRow row, string label, string tooltip = null, bool drawBackground = true, bool doMouseoverSound = true)
-		{
-			if (mButtonText == null)
-			{
-				mButtonText = AccessTools.Method(typeof(WidgetRow), nameof(WidgetRow.ButtonText));
-				buttonTextDefaults = mButtonText.GetParameters().Select(p => p.DefaultValue).ToArray();
-			}
-			var parameters = buttonTextDefaults;
-			parameters[0] = label;
-			parameters[1] = tooltip;
-			parameters[2] = drawBackground;
-			parameters[3] = doMouseoverSound;
-			return (bool)mButtonText.Invoke(row, parameters);
-		}
 	}
 }
