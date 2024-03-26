@@ -366,16 +366,13 @@ namespace Brrainz
 			description += @"[b]MY OTHER MODS[/b]
 I make RimWorld mods since 2015. Check out all my mods here to right. You can sub directly from the icons by toggling the red cross or click on them for more info!
 
-[b]SUPPORT ME![/b]
-Please support my work with as little as $1 on <color=blue>https://patreon.com/pardeike</color>
-
 [b]CONTACT[/b]
 Andreas Pardeike (aka Brrainz)
 Email: andreas@pardeike.net
 Discord: <color=blue>https://discord.gg/DsFxX5PG67</color>
 Twitter: <color=blue>https://twitter.com/pardeike</color>
 Twitch: <color=blue>https://twitch.tv/brrainz</color>";
-			
+
 			description = description.Replace("[b]", "<b><color=yellow>");
 			description = description.Replace("[/b]", "</color></b>");
 			description = description.Replace("[i]", "<i><color=silver>");

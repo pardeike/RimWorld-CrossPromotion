@@ -9,13 +9,13 @@
 		<PlatformTarget>AnyCPU</PlatformTarget>
 		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
 		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-		<Version>1.1.1.0</Version>
+		<Version>1.1.2.0</Version>
 		<Copyright>Ⓒ Andreas Pardeike</Copyright>
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<PackageId>Brrainz.RimWorld.CrossPromotion</PackageId>
 		<Authors>Brrainz</Authors>
 		<Company>Andreas Pardeike</Company>
-		<Description>This framework patches the mod page of RimWorld mods so it shows all mods of the author</Description>
+		<Description>This framework patches the mod page of my RimWorld mods so it shows all my other mods too.</Description>
 		<ApplicationIcon />
 	</PropertyGroup>
 
