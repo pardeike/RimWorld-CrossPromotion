@@ -176,8 +176,14 @@ namespace Brrainz
 				EUserUGCList.k_EUserUGCList_Published, EUGCMatchingUGCType.k_EUGCMatchingUGCType_UsableInGame,
 				EUserUGCListSortOrder.k_EUserUGCListSortOrder_VoteScoreDesc, rimworldID, rimworldID, 1);
 
-			_ = SteamUGC.SetReturnLongDescription(itemQuery, true);
-			_ = SteamUGC.SetRankedByTrendDays(itemQuery, 7);
+			try
+			{
+				_ = SteamUGC.SetReturnLongDescription(itemQuery, true);
+				_ = SteamUGC.SetRankedByTrendDays(itemQuery, 7);
+			}
+			catch
+			{
+			}
 
 			AsyncUserModsQuery(itemQuery, (result, failure) =>
 			{
